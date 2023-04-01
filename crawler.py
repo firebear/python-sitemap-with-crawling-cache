@@ -87,7 +87,7 @@ class Crawler:
 		else:
 			log_level = logging.ERROR
 
-		logging.basicConfig(level=log_level)
+		logging.basicConfig(format='%(asctime)s %(message)s', level=log_level)
 
 		self.urls_to_crawl = {self.clean_link(domain)}
 		self.url_strings_to_output = []
@@ -162,61 +162,96 @@ class Crawler:
 		return
 
 
-
 	def __crawl(self, current_url):
-		url = urlparse(current_url)
-		logging.info(f"Crawling #{self.num_crawled}: {url.geturl()}")
-		self.num_crawled += 1
+		url = urlparse(current_url)  # url，例如：http://www.xiaoxiongyouhao.com/gg/nogg/batch_share.php?unique_code=64278f3266d95&t1=123
+		path_file_name = current_url.replace(url.scheme + "://" + url.netloc, "")  # 路经文件名（带参数），例如：/gg/nogg/batch_share.php?unique_code=64278f3266d95&t1=123
+		cache_file_name = 'cache' + path_file_name  # 缓存路经文件名（带路径和参数），例如 cache/gg/nogg/batch_share.php?unique_code=64278f3266d95&t1=123
+		page_file_name = os.path.basename(url.path)  # 页面文件名，例如batch_share.php
 
-		request = Request(current_url, headers={"User-Agent": config.crawler_user_agent})
+		page_cache_required = len(page_file_name) > 0  # 首页，或者结尾是'/'，页面文件名空的，简单起见就不缓存了
 
-		if self.auth:
-			base64string = base64.b64encode(bytes(f'{config.username}:{config.password}', 'ascii'))
-			request.add_header("Authorization", "Basic %s" % base64string.decode('utf-8'))
+		msg = "".encode()
+		date = None
+		response = None
 
-		# Ignore resources listed in the not_parseable_resources
-		# Its avoid dowloading file like pdf… etc
-		if not url.path.endswith(self.not_parseable_resources):
-			try:
-				response = urlopen(request)
-			except Exception as e:
-				if hasattr(e,'code'):
-					self.response_code[e.code] += 1
+		if page_cache_required and os.path.exists(cache_file_name):
+			# 缓存已存在
+			with open(cache_file_name, "r") as file:
+				date = datetime.fromtimestamp(os.path.getmtime(cache_file_name))
+				msg = file.read().encode()
+			if len(msg) > 0:
+				logging.info(f"Crawling #{self.num_crawled}: 从{date}的缓存加载{len(msg)}字节成功：{cache_file_name}")
+				self.num_crawled += 1
+			else:
+				logging.warning(f"从缓存加载失败：{cache_file_name}")
 
-					# Gestion des urls marked pour le reporting
-					if self.report:
-						self.marked[e.code].append(current_url)
+		if len(msg) <= 0:
+			# 缓存不存在或者提取失败
+			logging.info(f"Crawling #{self.num_crawled}: {url.geturl()}")
+			self.num_crawled += 1
 
-				logging.debug (f"{e} ==> {current_url}")
-				return
-		else:
-			logging.debug(f"Ignore {current_url} content might be not parseable.")
-			response = None
+			request = Request(current_url, headers={"User-Agent": config.crawler_user_agent})
 
-		# Read the response
-		if response is not None:
-			try:
-				msg = response.read()
-				self.response_code[response.getcode()] += 1
+			if self.auth:
+				base64string = base64.b64encode(bytes(f'{config.username}:{config.password}', 'ascii'))
+				request.add_header("Authorization", "Basic %s" % base64string.decode('utf-8'))
 
-				response.close()
+			# Ignore resources listed in the not_parseable_resources
+			# Its avoid downloading file like pdf… etc
+			if not url.path.endswith(self.not_parseable_resources):
+				try:
+					response = urlopen(request)
+				except Exception as e:
+					if hasattr(e,'code'):
+						self.response_code[e.code] += 1
 
-				# Get the last modify date
-				if 'last-modified' in response.headers:
-					date = response.headers['Last-Modified']
-				else:
-					date = response.headers['Date']
+						# Gestion des urls marked pour le reporting
+						if self.report:
+							self.marked[e.code].append(current_url)
 
-				date = datetime.strptime(date, '%a, %d %b %Y %H:%M:%S %Z')
+					logging.debug (f"{e} ==> {current_url}")
+					return
+			else:
+				logging.debug(f"Ignore {current_url} content might be not parseable.")
+				response = None
 
-			except Exception as e:
-				logging.debug (f"{e} ===> {current_url}")
-				return
-		else:
-			# Response is None, content not downloaded, just continu and add
-			# the link to the sitemap
-			msg = "".encode( )
-			date = None
+			# Read the response
+			if response is not None:
+				try:
+					msg = response.read()
+					self.response_code[response.getcode()] += 1
+
+					response.close()
+
+					# Get the last modify date
+					if 'last-modified' in response.headers:
+						date = response.headers['Last-Modified']
+					else:
+						date = response.headers['Date']
+
+					date = datetime.strptime(date, '%a, %d %b %Y %H:%M:%S %Z')
+
+				except Exception as e:
+					logging.debug(f"{e} ===> {current_url}")
+					return
+
+				# 缓存
+				if page_cache_required and len(msg) > 0:
+					# 创建子目录
+					cache_sub_dir_name = 'cache' + os.path.dirname(url.path)
+					if not os.path.exists(cache_sub_dir_name):
+						os.makedirs(cache_sub_dir_name)
+
+					# 缓存文件
+					logging.debug(f"缓存到：{cache_file_name}")
+					with open(cache_file_name, "wb") as file:
+						file.write(msg)
+
+			else:
+				# Response is None, content not downloaded, just continue and add
+				# the link to the sitemap
+				msg = "".encode( )
+				date = None
 
 		# Image sitemap enabled ?
 		image_list = ""

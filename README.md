@@ -1,3 +1,8 @@
+# 项目说明
+本项目fork自[site-map](https://github.com/c4software/python-sitemap)，新增了页面缓存功能，防止运行被中断后，重新启动需要从头开始抓取。
+缓存路经为：`cache`，如果需要重新抓取最新网页，请先清空这个目录下的文件。
+2023.04.02
+
 # Python-Sitemap
 
 Simple script to crawl websites and create a sitemap.xml of all public link in it.
@@ -18,7 +23,7 @@ Read a config file to set parameters:
 #### Enable debug:
 
   ```
-	$ python main.py --domain https://blog.lesite.us --output sitemap.xml --debug
+	$ python3 main.py --domain https://blog.lesite.us --output sitemap.xml --debug
   ```
 
 #### Enable verbose output:
